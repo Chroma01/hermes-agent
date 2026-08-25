@@ -2689,6 +2689,42 @@ class TestHandleMaxIterations:
             outcome="success",
         )
 
+    def test_suppress_status_output_keeps_iteration_warning_off_stdout(self, agent, capsys):
+        """Machine-readable mode (-Q/oneshot) must not contaminate stdout (#26155)."""
+        resp = _mock_response(content="Summary")
+        agent.client.chat.completions.create.return_value = resp
+        agent._cached_system_prompt = "You are helpful."
+        agent.suppress_status_output = True
+
+        result = agent._handle_max_iterations(
+            [{"role": "user", "content": "do stuff"}],
+            1,
+        )
+
+        captured = capsys.readouterr()
+        assert result == "Summary"
+        assert "Reached maximum iterations" not in captured.out
+
+    def test_plain_quiet_mode_still_prints_iteration_warning(self, agent, capsys):
+        """Interactive CLI runs quiet_mode=True by default — the warning must
+        still show there; only suppress_status_output gates it (#26155)."""
+        resp = _mock_response(content="Summary")
+        agent.client.chat.completions.create.return_value = resp
+        agent._cached_system_prompt = "You are helpful."
+        agent.quiet_mode = True
+        agent.suppress_status_output = False
+        printed = []
+        agent._print_fn = lambda *a, **k: printed.append(" ".join(str(x) for x in a))
+
+        result = agent._handle_max_iterations(
+            [{"role": "user", "content": "do stuff"}],
+            1,
+        )
+
+        assert result == "Summary"
+        combined = "\n".join(printed) + capsys.readouterr().out
+        assert "Reached maximum iterations" in combined
+
     def test_api_failure_returns_error(self, agent):
         agent.client.chat.completions.create.side_effect = Exception("API down")
         agent._cached_system_prompt = "You are helpful."
@@ -3544,6 +3580,49 @@ class TestRunConversation:
         assert result["completed"] is True
         assert result["final_response"] == "Here is the actual answer."
         assert result["api_calls"] == 2  # 1 original + 1 nudge retry
+
+    def test_openrouter_empty_retry_bypasses_response_cache(self, agent, monkeypatch):
+        """An OpenRouter empty retry must not replay the cached empty response."""
+        self._setup_agent(agent)
+        empty_resp = _mock_response(content=None, finish_reason="stop")
+        content_resp = _mock_response(
+            content="Fresh provider response.",
+            finish_reason="stop",
+        )
+        responses = iter([empty_resp, content_resp])
+        request_kwargs = []
+
+        def _create(**kwargs):
+            request_kwargs.append(kwargs)
+            return next(responses)
+
+        original_build_api_kwargs = agent._build_api_kwargs
+
+        def _build_api_kwargs(*args, **kwargs):
+            built = original_build_api_kwargs(*args, **kwargs)
+            built["extra_headers"] = {"X-Custom-Header": "preserved"}
+            return built
+
+        agent.client.chat.completions.create.side_effect = _create
+        monkeypatch.setattr(agent, "_build_api_kwargs", _build_api_kwargs)
+        monkeypatch.setattr(
+            "agent.conversation_loop.jittered_backoff",
+            lambda *args, **kwargs: 0.0,
+        )
+
+        with (
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("answer me")
+
+        assert result["final_response"] == "Fresh provider response."
+        assert "X-OpenRouter-Cache" not in request_kwargs[0].get(
+            "extra_headers", {}
+        )
+        assert request_kwargs[1]["extra_headers"]["X-Custom-Header"] == "preserved"
+        assert request_kwargs[1]["extra_headers"]["X-OpenRouter-Cache"] == "false"
 
     def test_empty_response_triggers_fallback_provider(self, agent):
         """After 3 empty retries, fallback provider is activated and produces content."""
