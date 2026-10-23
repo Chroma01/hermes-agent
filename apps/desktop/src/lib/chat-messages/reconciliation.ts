@@ -631,6 +631,45 @@ export function branchGroupForUser(userMessage: ChatMessage): string {
   return `branch:${userMessage.id}`
 }
 
+const LIVE_ASSISTANT_STREAM_PREFIX = 'assistant-stream-'
+
+/** Retire finished live stream bubbles whose answer has already committed.
+ *  The persisted copy owns the row receipt and is the source of truth; the
+ *  narrow activation-path supersede misses the common case where the commit
+ *  lands while the stream bubble stays in the tail — the duplicated assistant
+ *  bubble reported after gateway respawns. Only FINISHED streams (non-empty
+ *  text, not pending) retire, and only on an exact committed-text match, so a
+ *  live turn's typing indicator never disappears. */
+export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessage[] {
+  const committedTexts = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.pending || message.id.startsWith(LIVE_ASSISTANT_STREAM_PREFIX)) {
+      continue
+    }
+    const text = normalizedTimelineText(message)
+    if (text) {
+      committedTexts.add(text)
+    }
+  }
+
+  if (!committedTexts.size) {
+    return messages
+  }
+
+  const drop = new Set<number>()
+  messages.forEach((message, index) => {
+    if (!message.id.startsWith(LIVE_ASSISTANT_STREAM_PREFIX) || message.pending) {
+      return
+    }
+    const text = normalizedTimelineText(message)
+    if (text && committedTexts.has(text)) {
+      drop.add(index)
+    }
+  })
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
+
 /** Collapse bubbles that represent the same persisted backend row (#138259).
  *  After a gateway respawn the reconnect resync folds the transcript back onto
  *  live bubbles that already carry the row's receipt, and both copies render —

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type ChatMessage, collapseSameRowId, textPart } from './index'
+import { type ChatMessage, collapseSameRowId, collapseSupersededStreamRows, textPart } from './index'
 
 const row = (id: string, role: 'user' | 'assistant', text: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
@@ -50,5 +50,41 @@ describe('collapseSameRowId', () => {
     ]
 
     expect(collapseSameRowId(messages)).toBe(messages)
+  })
+})
+
+describe('collapseSupersededStreamRows', () => {
+  it('retires a finished live stream bubble once its row has committed', () => {
+    const committed = row('1792777963.8-110-assistant', 'assistant', 'Rakennus menee putkessa')
+    const finishedStream = row('assistant-stream-1792777961940-1', 'assistant', 'Rakennus menee putkessa')
+
+    const next = collapseSupersededStreamRows([committed, finishedStream])
+
+    expect(next.map(message => message.id)).toEqual(['1792777963.8-110-assistant'])
+  })
+
+  it('keeps a still-streaming bubble even when an older row shares its prefix text', () => {
+    const committed = row('1-1-assistant', 'assistant', 'Valmis vastaus')
+    const streaming = row('assistant-stream-99-2', 'assistant', 'Vasta', { pending: true })
+
+    const next = collapseSupersededStreamRows([committed, streaming])
+
+    expect(next.map(message => message.id)).toEqual(['1-1-assistant', 'assistant-stream-99-2'])
+  })
+
+  it('keeps a finished stream bubble whose text differs from every committed row', () => {
+    const committed = row('1-1-assistant', 'assistant', 'Toinen vastaus')
+    const liveBubble = row('assistant-stream-99-1', 'assistant', 'Tuore vastaus')
+
+    expect(collapseSupersededStreamRows([committed, liveBubble])).toHaveLength(2)
+  })
+
+  it('normalizes whitespace between live and committed copies', () => {
+    const committed = row('1-1-assistant', 'assistant', 'Rivi 1\n\nrivi 2')
+    const liveBubble = row('assistant-stream-99-1', 'assistant', 'Rivi 1\nrivi 2')
+
+    const next = collapseSupersededStreamRows([committed, liveBubble])
+
+    expect(next.map(message => message.id)).toEqual(['1-1-assistant'])
   })
 })

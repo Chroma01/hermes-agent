@@ -21,7 +21,7 @@ import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { type HermesGateway, type ResolvedOwner } from '@/hermes'
 import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
-import { collapseSameRowId } from '@/lib/chat-messages'
+import { collapseSameRowId, collapseSupersededStreamRows } from '@/lib/chat-messages'
 import { NEW_SESSION_TITLE, sessionTitle } from '@/lib/chat-runtime'
 import { useIncrementalExternalStoreRuntime } from '@/lib/incremental-external-store-runtime'
 import { useStoreSelector } from '@/lib/use-session-slice'
@@ -342,9 +342,11 @@ export function ChatRuntimeBoundary({
   // #138259 guard: after a gateway respawn the reconnect resync can fold a
   // persisted row back onto the live bubble that already carries the row's
   // receipt, rendering the same user/assistant bubble twice. Two bubbles never
-  // legitimately share a rowId, so one survives per rowId.
+  // legitimately share a rowId, so one survives per rowId. Finished
+  // assistant-stream bubbles whose answer already committed as its own row
+  // retire the same way — the committed copy owns the receipt.
   const currentMessages = useMemo(
-    () => collapseSameRowId(history.page?.messages ?? windowedMessages),
+    () => collapseSameRowId(collapseSupersededStreamRows(history.page?.messages ?? windowedMessages)),
     [history.page, windowedMessages]
   )
   // Release the store's paged-through history (persisted rows older than the
