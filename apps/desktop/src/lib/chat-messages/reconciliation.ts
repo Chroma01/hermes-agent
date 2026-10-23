@@ -630,3 +630,45 @@ export function preserveLocalSystemNotices(nextMessages: ChatMessage[], currentM
 export function branchGroupForUser(userMessage: ChatMessage): string {
   return `branch:${userMessage.id}`
 }
+
+/** Collapse bubbles that represent the same persisted backend row (#138259).
+ *  After a gateway respawn the reconnect resync folds the transcript back onto
+ *  live bubbles that already carry the row's receipt, and both copies render —
+ *  the duplicated-transcript bug. Two bubbles never legitimately share a
+ *  `rowId`, so keep exactly one per rowId: non-pending over pending, richer
+ *  parts over poorer, earlier position wins ties (scroll stays stable).
+ *  Returns the input array unchanged when nothing collapses, so memoized
+ *  consumers of the message list don't re-render. */
+export function collapseSameRowId(messages: ChatMessage[]): ChatMessage[] {
+  const kept = new Map<number, number>()
+  const drop = new Set<number>()
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+    const { rowId } = message
+    if (rowId === undefined) {
+      continue
+    }
+
+    const keptIndex = kept.get(rowId)
+    if (keptIndex === undefined) {
+      kept.set(rowId, index)
+      continue
+    }
+
+    const incumbent = messages[keptIndex]
+    const replace =
+      (Boolean(incumbent.pending) && !message.pending) ||
+      (!incumbent.pending && !message.pending && message.parts.length > incumbent.parts.length)
+
+    if (!replace) {
+      drop.add(index)
+      continue
+    }
+
+    drop.add(keptIndex)
+    kept.set(rowId, index)
+  }
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
