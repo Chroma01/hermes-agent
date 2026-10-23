@@ -21,6 +21,7 @@ export {
 export type { UnspokenTurnSpeech } from './parts'
 export {
   branchGroupForUser,
+  collapseOptimisticUserEchoes,
   collapseSameRowId,
   collapseSupersededStreamRows,
   preserveLocalAssistantErrors,

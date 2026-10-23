@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { type ChatMessage, collapseSameRowId, collapseSupersededStreamRows, textPart } from './index'
+import {
+  type ChatMessage,
+  collapseOptimisticUserEchoes,
+  collapseSameRowId,
+  collapseSupersededStreamRows,
+  textPart
+} from './index'
 
 const row = (id: string, role: 'user' | 'assistant', text: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({
   id,
@@ -86,5 +92,43 @@ describe('collapseSupersededStreamRows', () => {
     const next = collapseSupersededStreamRows([committed, liveBubble])
 
     expect(next.map(message => message.id)).toEqual(['1-1-assistant'])
+  })
+})
+
+describe('collapseOptimisticUserEchoes', () => {
+  it('retires the optimistic prompt while its stored twin streams beside it', () => {
+    const optimistic = row('user-sub-1', 'user', 'Kattoi susta')
+    const stored = row('1792-7-user', 'user', 'Kattoi susta', { rowId: 7 })
+    const answer = row('1792-8-assistant', 'assistant', 'Kattoin itsekin')
+
+    const next = collapseOptimisticUserEchoes([optimistic, stored, answer])
+
+    expect(next.map(message => message.id)).toEqual(['1792-7-user', '1792-8-assistant'])
+  })
+
+  it('also retires when the stored row lands first', () => {
+    const stored = row('1792-7-user', 'user', 'Hei', { rowId: 7 })
+    const optimistic = row('user-sub-2', 'user', 'Hei')
+
+    expect(collapseOptimisticUserEchoes([stored, optimistic]).map(message => message.id)).toEqual(['1792-7-user'])
+  })
+
+  it('keeps a lone optimistic prompt with no stored neighbour', () => {
+    const optimistic = row('user-sub-3', 'user', 'Yksin')
+    const answer = row('1792-9-assistant', 'assistant', 'Vastaus')
+
+    expect(collapseOptimisticUserEchoes([optimistic, answer])).toHaveLength(2)
+  })
+
+  it('never pairs across a different text, hidden twin, queue row, or bound row', () => {
+    const kept = [
+      row('user-sub-a', 'user', 'Eka'),
+      row('1792-1-user', 'user', 'Toka', { rowId: 1 }),
+      row('user-sub-b', 'user', 'Eka', { hidden: true }),
+      row('user-queued-c', 'user', 'Jono'),
+      row('user-bound-d', 'user', 'Eka', { rowId: 2 })
+    ]
+
+    expect(collapseOptimisticUserEchoes(kept)).toBe(kept)
   })
 })

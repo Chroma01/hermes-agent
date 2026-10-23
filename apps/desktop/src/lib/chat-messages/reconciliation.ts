@@ -633,6 +633,57 @@ export function branchGroupForUser(userMessage: ChatMessage): string {
 
 const LIVE_ASSISTANT_STREAM_PREFIX = 'assistant-stream-'
 
+const OPTIMISTIC_USER_PREFIX = 'user-'
+const QUEUED_USER_PREFIX = 'user-queued-'
+
+/** Retire optimistic user bubbles whose stored copy already sits beside them.
+ *  A transcript read keyed on stored rows grafts the durable prompt next to
+ *  the sender's optimistic bubble, and `bindReceiptUserRows` only merges the
+ *  pair once the turn COMPLETES — so while the answer streams, the prompt
+ *  paints twice (the receipt-user-rows bug, named in its own comment). Drop
+ *  the unbound optimistic copy when an adjacent stored user row carries the
+ *  exact same text and attachment refs: the durable copy owns the receipt, and
+ *  the binder's end-state (one bound row) is exactly what this shows early.
+ *  Text-equality only ever pairs a bubble with its own twin in the same turn;
+ *  a deliberate repeated send blinks at worst while its stored row lands. */
+export function collapseOptimisticUserEchoes(messages: ChatMessage[]): ChatMessage[] {
+  const drop = new Set<number>()
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (
+      message.role !== 'user' ||
+      !message.id.startsWith(OPTIMISTIC_USER_PREFIX) ||
+      message.id.startsWith(QUEUED_USER_PREFIX) ||
+      message.rowId !== undefined
+    ) {
+      continue
+    }
+
+    const text = normalizedTimelineText(message)
+
+    if (!text) {
+      continue
+    }
+
+    const refs = (message.attachmentRefs ?? []).join('\n')
+    const storedTwin = (candidate: ChatMessage | undefined) =>
+      candidate !== undefined &&
+      candidate.role === 'user' &&
+      !candidate.hidden &&
+      candidate.rowId !== undefined &&
+      normalizedTimelineText(candidate) === text &&
+      (candidate.attachmentRefs ?? []).join('\n') === refs
+
+    if (storedTwin(messages[index - 1]) || storedTwin(messages[index + 1])) {
+      drop.add(index)
+    }
+  }
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
+
 /** Retire finished live stream bubbles whose answer has already committed.
  *  The persisted copy owns the row receipt and is the source of truth; the
  *  narrow activation-path supersede misses the common case where the commit

@@ -21,7 +21,7 @@ import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { type HermesGateway, type ResolvedOwner } from '@/hermes'
 import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
-import { collapseSameRowId, collapseSupersededStreamRows } from '@/lib/chat-messages'
+import { collapseOptimisticUserEchoes, collapseSameRowId, collapseSupersededStreamRows } from '@/lib/chat-messages'
 import { NEW_SESSION_TITLE, sessionTitle } from '@/lib/chat-runtime'
 import { useIncrementalExternalStoreRuntime } from '@/lib/incremental-external-store-runtime'
 import { useStoreSelector } from '@/lib/use-session-slice'
@@ -344,9 +344,15 @@ export function ChatRuntimeBoundary({
   // receipt, rendering the same user/assistant bubble twice. Two bubbles never
   // legitimately share a rowId, so one survives per rowId. Finished
   // assistant-stream bubbles whose answer already committed as its own row
-  // retire the same way — the committed copy owns the receipt.
+  // retire the same way — the committed copy owns the receipt. And an
+  // unbound optimistic prompt beside its stored twin retires at once instead
+  // of waiting for the completion receipt to bind the pair (the
+  // paints-the-prompt-twice window during streaming).
   const currentMessages = useMemo(
-    () => collapseSameRowId(collapseSupersededStreamRows(history.page?.messages ?? windowedMessages)),
+    () =>
+      collapseSameRowId(
+        collapseSupersededStreamRows(collapseOptimisticUserEchoes(history.page?.messages ?? windowedMessages))
+      ),
     [history.page, windowedMessages]
   )
   // Release the store's paged-through history (persisted rows older than the
