@@ -724,6 +724,81 @@ export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessa
     !candidate.pending &&
     normalizedTimelineText(candidate) === text
 
+  // #B39: the live snapshot is a lagging view of its own run. A mid-turn
+  // window reload freezes that snapshot behind the run's committed row, and
+  // its text is then a PREFIX of the twin, not equal to it — the exact-match
+  // guard above never fires and the partial ghost outlives even a reload.
+  // The bubble id embeds its run start (ms), the committed id embeds the
+  // row time, so "started at or before the twin" proves the twin superseded
+  // this run. A freshly streaming bubble started after every committed row
+  // above it, so an older line whose text happens to begin the same way
+  // cannot hide it.
+  const liveRunStartMs = (id: string) => {
+    const digits = /(\d{11,14})/.exec(id)
+
+    return digits ? Number(digits[1]) : null
+  }
+
+  const committedTsMs = (candidate: ChatMessage | null | undefined) => {
+    if (!candidate) {
+      return null
+    }
+
+    const stamp = /^(\d{10,11}(?:\.\d+)?|\d{13})/.exec(candidate.id)
+
+    if (!stamp) {
+      return null
+    }
+
+    const value = Number(stamp[1])
+
+    if (!Number.isFinite(value)) {
+      return null
+    }
+
+    return stamp[1].includes('.') || stamp[1].length <= 11 ? value * 1000 : value
+  }
+
+  const prefixTwinAhead = (index: number) => {
+    for (let cursor = index - 1; cursor >= 0; cursor--) {
+      const candidate = messages[cursor]
+
+      if (
+        candidate.role === 'assistant' &&
+        candidate.rowId !== undefined &&
+        !candidate.pending &&
+        !isLiveAssistantRow(candidate.id)
+      ) {
+        return candidate
+      }
+    }
+
+    return null
+  }
+
+  const stalePrefixSuperseded = (message: ChatMessage, index: number, text: string) => {
+    if (!text) {
+      return false
+    }
+
+    const start = liveRunStartMs(message.id)
+
+    if (start === null) {
+      return false
+    }
+
+    const twin = prefixTwinAhead(index, text)
+    const twinText = twin ? normalizedTimelineText(twin) : ''
+    const twinTs = committedTsMs(twin)
+
+    return (
+      twinText.length > text.length &&
+      twinText.startsWith(text) &&
+      twinTs !== null &&
+      twinTs >= start
+    )
+  }
+
   const drop = new Set<number>()
   messages.forEach((message, index) => {
     if (!isLiveAssistantRow(message.id) || message.error) {
@@ -737,14 +812,18 @@ export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessa
     }
 
     if (message.pending) {
-      if (committedTwin(messages[index - 1], text) || committedTwin(messages[index + 1], text)) {
+      if (
+        committedTwin(messages[index - 1], text) ||
+        committedTwin(messages[index + 1], text) ||
+        stalePrefixSuperseded(message, index, text)
+      ) {
         drop.add(index)
       }
 
       return
     }
 
-    if (committedTexts.has(text)) {
+    if (committedTexts.has(text) || stalePrefixSuperseded(message, index, text)) {
       drop.add(index)
     }
   })

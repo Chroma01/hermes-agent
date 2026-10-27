@@ -127,6 +127,39 @@ describe('collapseSupersededStreamRows', () => {
     ])
   })
 
+  it('retires a frozen partial live bubble whose committed row grew past it (#B39)', () => {
+    // Real shape from the live DOM: run started at 1793128289217 ms, the
+    // committed row carries the finished text at 1793128290.284 s. The
+    // reload froze the live snapshot mid-answer; only the prefix guard can
+    // see this ghost.
+    const committed = row('1793128290.2848988-113-assistant', 'assistant',
+      'Nyt loppuu arvailu — mittaan elävällä ikkunalla CDP:n läpi. Katsotaan onko debug-portti auki, katson tabit ja kirjoitan probekansion',
+      { rowId: 113 })
+
+    const frozen = row('assistant-stream-1793128289217-12', 'assistant',
+      'Nyt loppuu arvailu — mittaan elävällä ikkunalla CDP:n läpi.')
+
+    const next = collapseSupersededStreamRows([committed, frozen])
+
+    expect(next.map(message => message.id)).toEqual(['1793128290.2848988-113-assistant'])
+  })
+
+  it('keeps a fresh streaming bubble even when an older row begins with the same words (#B39)', () => {
+    // The queued-prompt hazard: a new run started AFTER the row committed,
+    // so the timestamp guard must keep the typing indicator alive even
+    // though the older text happens to prefix-match.
+    const committed = row('1793128290.2848988-113-assistant', 'assistant',
+      'Nyt loppuu arvailu — mittaan elävällä ikkunalla CDP:n läpi. Katsotaan onko debug-portti auki',
+      { rowId: 113 })
+
+    const fresh = row('assistant-stream-1793128400000-5', 'assistant',
+      'Nyt loppuu arvailu — mittaan', { pending: true })
+
+    const input = [committed, fresh]
+
+    expect(collapseSupersededStreamRows(input)).toBe(input)
+  })
+
   it('keeps an errored live bubble even beside its committed twin — preserve owns errors (#B38)', () => {
     const committed = row('1-4-assistant', 'assistant', 'Katkesi kesken', { rowId: 44 })
     const errored = row('assistant-stream-99-5', 'assistant', 'Katkesi kesken', { error: 'Katkesi kesken' })
