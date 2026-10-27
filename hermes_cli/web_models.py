@@ -498,6 +498,10 @@ class SkillToggle(BaseModel):
     enabled: bool
     profile: Optional[str] = None
 
+class SkillDelete(BaseModel):
+    name: str
+    profile: Optional[str] = None
+
 class SkillCreate(BaseModel):
     name: str
     content: str
