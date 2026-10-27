@@ -38,6 +38,7 @@ describe('collapseSameRowId', () => {
 
   it('keeps the richer copy when both are complete', () => {
     const plain = row('hist-1', 'assistant', 'Katsotaan', { rowId: 9 })
+
     const withTools = row('live-1', 'assistant', 'Katsotaan', {
       rowId: 9,
       parts: [textPart('Katsotaan'), textPart('valmis')]
@@ -92,6 +93,47 @@ describe('collapseSupersededStreamRows', () => {
     const next = collapseSupersededStreamRows([committed, liveBubble])
 
     expect(next.map(message => message.id)).toEqual(['1-1-assistant'])
+  })
+
+  it('retires a sealed interim segment bubble once its commentary row has committed (#B38)', () => {
+    const committed = row('1-2-assistant', 'assistant', 'Katselen lokit', { interim: true })
+    const sealedSegment = row('inflight-assistant-segment-0-99-1', 'assistant', 'Katselen lokit', { interim: true })
+
+    const next = collapseSupersededStreamRows([committed, sealedSegment])
+
+    expect(next.map(message => message.id)).toEqual(['1-2-assistant'])
+  })
+
+  it('retires a completion-stalled pending bubble whose committed twin sits beside it (#B38)', () => {
+    const committed = row('1-3-assistant', 'assistant', 'Valmis raportti', { rowId: 33 })
+    const stalled = row('assistant-stream-99-3', 'assistant', 'Valmis raportti', { pending: true })
+
+    const next = collapseSupersededStreamRows([committed, stalled])
+
+    expect(next.map(message => message.id)).toEqual(['1-3-assistant'])
+  })
+
+  it('keeps a pending bubble whose identical row lives far above — typing must not blink (#B38)', () => {
+    const oldTwin = row('1-1-assistant', 'assistant', 'Selvä.', { rowId: 10 })
+    const older = row('1-2-assistant', 'assistant', 'Ei siinä mitään', { rowId: 11 })
+    const streaming = row('assistant-stream-99-4', 'assistant', 'Selvä.', { pending: true })
+    const input = [oldTwin, older, streaming]
+
+    expect(collapseSupersededStreamRows(input)).toBe(input)
+    expect(collapseSupersededStreamRows(input).map(message => message.id)).toEqual([
+      '1-1-assistant',
+      '1-2-assistant',
+      'assistant-stream-99-4'
+    ])
+  })
+
+  it('keeps an errored live bubble even beside its committed twin — preserve owns errors (#B38)', () => {
+    const committed = row('1-4-assistant', 'assistant', 'Katkesi kesken', { rowId: 44 })
+    const errored = row('assistant-stream-99-5', 'assistant', 'Katkesi kesken', { error: 'Katkesi kesken' })
+
+    const next = collapseSupersededStreamRows([committed, errored])
+
+    expect(next.map(message => message.id)).toEqual(['1-4-assistant', 'assistant-stream-99-5'])
   })
 })
 

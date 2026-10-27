@@ -1,3 +1,5 @@
+import { isLiveTailReplyId as isLiveAssistantRow } from '../spoken-reply'
+
 import { attachmentTolerantUserText, sameAttachmentTurn } from './attachment-turn'
 import { chatMessageText } from './parts'
 import type { ChatMessage, ChatMessagePart } from './types'
@@ -631,8 +633,6 @@ export function branchGroupForUser(userMessage: ChatMessage): string {
   return `branch:${userMessage.id}`
 }
 
-const LIVE_ASSISTANT_STREAM_PREFIX = 'assistant-stream-'
-
 const OPTIMISTIC_USER_PREFIX = 'user-'
 const QUEUED_USER_PREFIX = 'user-queued-'
 
@@ -668,6 +668,7 @@ export function collapseOptimisticUserEchoes(messages: ChatMessage[]): ChatMessa
     }
 
     const refs = (message.attachmentRefs ?? []).join('\n')
+
     const storedTwin = (candidate: ChatMessage | undefined) =>
       candidate !== undefined &&
       candidate.role === 'user' &&
@@ -688,16 +689,25 @@ export function collapseOptimisticUserEchoes(messages: ChatMessage[]): ChatMessa
  *  The persisted copy owns the row receipt and is the source of truth; the
  *  narrow activation-path supersede misses the common case where the commit
  *  lands while the stream bubble stays in the tail — the duplicated assistant
- *  bubble reported after gateway respawns. Only FINISHED streams (non-empty
- *  text, not pending) retire, and only on an exact committed-text match, so a
- *  live turn's typing indicator never disappears. */
+ *  bubble reported after gateway respawns. Non-pending bubbles retire on an
+ *  exact committed-text match, so a live turn's typing indicator never
+ *  disappears. #B38: the live family also includes the sealed interim
+ *  segments (`inflight-assistant-segment-*`) that survive as ghosts next to
+ *  their durable commentary rows, and a completion event lost in a respawn
+ *  parks the final bubble at `pending` forever — that stuck copy retires too,
+ *  but only against an ADJACENT committed twin (a twin that only exists far
+ *  above belongs to an older turn, and retiring the freshly streaming bubble
+ *  against it would blink the typing indicator mid-sentence). */
 export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessage[] {
   const committedTexts = new Set<string>()
+
   for (const message of messages) {
-    if (message.role !== 'assistant' || message.pending || message.id.startsWith(LIVE_ASSISTANT_STREAM_PREFIX)) {
+    if (message.role !== 'assistant' || message.pending || isLiveAssistantRow(message.id)) {
       continue
     }
+
     const text = normalizedTimelineText(message)
+
     if (text) {
       committedTexts.add(text)
     }
@@ -707,13 +717,34 @@ export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessa
     return messages
   }
 
+  const committedTwin = (candidate: ChatMessage | undefined, text: string) =>
+    candidate !== undefined &&
+    candidate.role === 'assistant' &&
+    candidate.rowId !== undefined &&
+    !candidate.pending &&
+    normalizedTimelineText(candidate) === text
+
   const drop = new Set<number>()
   messages.forEach((message, index) => {
-    if (!message.id.startsWith(LIVE_ASSISTANT_STREAM_PREFIX) || message.pending) {
+    if (!isLiveAssistantRow(message.id) || message.error) {
       return
     }
+
     const text = normalizedTimelineText(message)
-    if (text && committedTexts.has(text)) {
+
+    if (!text) {
+      return
+    }
+
+    if (message.pending) {
+      if (committedTwin(messages[index - 1], text) || committedTwin(messages[index + 1], text)) {
+        drop.add(index)
+      }
+
+      return
+    }
+
+    if (committedTexts.has(text)) {
       drop.add(index)
     }
   })
@@ -736,23 +767,28 @@ export function collapseSameRowId(messages: ChatMessage[]): ChatMessage[] {
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index]
     const { rowId } = message
+
     if (rowId === undefined) {
       continue
     }
 
     const keptIndex = kept.get(rowId)
+
     if (keptIndex === undefined) {
       kept.set(rowId, index)
+
       continue
     }
 
     const incumbent = messages[keptIndex]
+
     const replace =
       (Boolean(incumbent.pending) && !message.pending) ||
       (!incumbent.pending && !message.pending && message.parts.length > incumbent.parts.length)
 
     if (!replace) {
       drop.add(index)
+
       continue
     }
 
