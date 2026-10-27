@@ -282,6 +282,7 @@ export const arBoot = {
     recommended: 'موصى به',
     connected: 'متصل',
     featuredPitch: 'اشتراك واحد، أكثر من 300 نموذج متقدم — الطريقة الموصى بها لتشغيل Hermes',
+    dismissFeatured: 'تجاهل الآن',
     fireworksPitch: 'نماذج مفتوحة سريعة مع استضافة Fireworks.',
     openRouterPitch: 'مفتاح واحد لمئات النماذج — خيار افتراضي جيد',
     apiKeyOptions: {

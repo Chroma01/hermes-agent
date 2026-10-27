@@ -940,11 +940,20 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
       // (#108941); use-stick-to-bottom stays the single scroll owner otherwise.
       // An open inline edit holds the viewport (beginEditHold), so its growing
       // bubble is never followed.
+      // The follow is NOT run-gated on live sessions: an idle send appends the
+      // user echo with no active run, so no thread.runStart fires and the
+      // library's own follow has already lost the bottom (scrollTop sits at the
+      // stale maximum while rows grow below it — the "my message is invisible
+      // until Ctrl+R" bug). A reader who was at the bottom follows row growth
+      // once the session is SETTLED; while a restore/settle is in flight
+      // (loadSettledRef false) that loop owns scrollTop, exactly as before.
+      // The 'bottom' pre-check, clearance math, edit hold and selection guard
+      // keep every other reader still.
       if (
-        isRunningRef.current &&
+        (isRunningRef.current || loadSettledRef.current) &&
         !el.hasAttribute('data-editing') &&
         shouldReapplyFrozenThreadScrollOffset(THREAD_SCROLL_BOTTOM, true, previousResizeMetrics, nextResizeMetrics) &&
-        threadScrollStateFromMetrics({ ...previousResizeMetrics, scrollTop: el.scrollTop }).kind === 'bottom' &&
+        liveScrollStateRef.current.kind === 'bottom' &&
         !hasTranscriptTextSelection(el)
       ) {
         el.scrollTop = threadScrollTargetTop(THREAD_SCROLL_BOTTOM, nextResizeMetrics)

@@ -15,8 +15,8 @@ from fastapi import APIRouter, HTTPException
 from hermes_cli.web_deps import late
 from hermes_cli.web_server_profiles import _hub_action_name, _installed_hub_identifiers
 from hermes_cli.web_models import (
-    SkillContentUpdate, SkillCreate, SkillInstallRequest, SkillToggle, SkillUninstallRequest,
-    SkillsUpdateRequest)
+    SkillContentUpdate, SkillCreate, SkillDelete, SkillInstallRequest, SkillToggle,
+    SkillUninstallRequest, SkillsUpdateRequest)
 from hermes_cli.web_routers._common import (
     _profile_scope, config_write_scope, http_failure, log as _log, require, scoped_to_thread,
     spawn_profile_action)
@@ -392,6 +392,35 @@ async def toggle_skill(body: SkillToggle, profile: Optional[str] = None):
         return {"ok": True, "name": body.name, "enabled": body.enabled}
 
     return await asyncio.to_thread(_run)
+
+
+@router.delete("/api/skills")
+async def delete_skill(body: SkillDelete, profile: Optional[str] = None):
+    """Delete a skill folder from disk — the dashboard's "remove this skill"
+    button, wanted for bundled (built-in) skills which the toggle can only
+    mute. Hub-installed skills keep their manifest path (use the hub
+    uninstall action, which also prunes bookkeeping). Bundled skills may
+    reappear on the next ``hermes update`` bundled sync — delete again or
+    disable to keep them out."""
+    import shutil
+
+    from tools.skill_manager_tool import _find_skill
+    from tools.skill_usage import _read_hub_installed_names
+
+    def _delete():
+        found = _find_skill(body.name)
+        if not found:
+            raise HTTPException(status_code=404, detail=f"Skill '{body.name}' not found.")
+        if body.name in _read_hub_installed_names():
+            raise HTTPException(
+                status_code=400, detail=f"Skill '{body.name}' is hub-installed — use Hub uninstall."
+            )
+        shutil.rmtree(found["path"])
+        return {"ok": True, "name": body.name}
+
+    result = await scoped_to_thread(body.profile or profile, _delete)
+    _clear_skills_prompt_cache()
+    return result
 
 
 @router.get("/api/skills/content")

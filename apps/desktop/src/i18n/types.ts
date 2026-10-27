@@ -1889,6 +1889,11 @@ catalog: CatalogTranslations
     archive: string
     skillArchivedTitle: string
     skillArchivedMessage: string
+    skillDeletedTitle: string
+    skillDeletedMessage: (name: string) => string
+    skillDeleteBundledNote: string
+    deleteSkill: string
+    confirmDeleteSkill: string
     tabPlugins: string
     plugins: PluginUpdateTranslations &
       PluginPreviewAccessTranslations & {
