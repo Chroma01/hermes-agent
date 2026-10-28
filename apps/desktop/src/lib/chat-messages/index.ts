@@ -30,6 +30,7 @@ export {
   spliceOlderPreservedRows
 } from './reconciliation'
 export {
+  concatPartsByToolCall,
   hasUnresolvedToolCall,
   QUESTION_CARD_TOOLS,
   restorePendingBlockingToolCall,
