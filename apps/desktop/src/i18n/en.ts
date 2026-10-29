@@ -2098,6 +2098,11 @@ export const en: Translations = {
     archive: 'Archive',
     skillArchivedTitle: 'Skill archived',
     skillArchivedMessage: 'Restorable via hermes curator restore.',
+    skillDeletedTitle: 'Skill deleted',
+    skillDeletedMessage: name => `“${name}” was removed from disk.`,
+    skillDeleteBundledNote: 'Built-in skills may return on the next update — disable to keep them out.',
+    deleteSkill: 'Delete skill',
+    confirmDeleteSkill: 'Confirm delete',
     tabPlugins: 'Plugins',
     plugins: {
       agentTitle: 'Agent plugins',

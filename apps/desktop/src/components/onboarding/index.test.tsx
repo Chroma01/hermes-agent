@@ -92,6 +92,33 @@ describe('onboarding Picker', () => {
     expect(window.localStorage.getItem('hermes-onboarding-skipped-v1')).toBe('1')
   })
 
+  it('dismisses the featured Nous Portal pitch and degrades it to a plain row', () => {
+    setProviders([makeOAuthProvider('anthropic', 'Anthropic Claude'), makeOAuthProvider('nous', 'Nous Portal')])
+    render(<Picker ctx={ctx} />)
+
+    // Dismissed: the banner card is gone (no pitch text) and, with no featured
+    // anchor left, the full provider list is shown directly — no disclosure.
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss for now' }))
+
+    expect(screen.queryByText('Dismiss for now')).toBeNull()
+    expect(window.localStorage.getItem('hermes-onboarding-featured-dismissed-v1')).toBe('1')
+    expect(screen.queryByText('One subscription, 300+ frontier models — the recommended way to run Hermes')).toBeNull()
+    expect(screen.queryByText('Recommended')).toBeNull()
+    expect(screen.getByText('Nous Portal')).toBeTruthy()
+    expect(screen.getByText('Anthropic API Key')).toBeTruthy()
+  })
+
+  it('honors a dismiss preference set in another surface', () => {
+    window.localStorage.setItem('hermes-onboarding-featured-dismissed-v1', '1')
+    setProviders([makeOAuthProvider('nous', 'Nous Portal')])
+    render(<Picker ctx={ctx} />)
+
+    // Same effect as dismissing in place: no banner, full list, no disclosure.
+    expect(screen.queryByText('Dismiss for now')).toBeNull()
+    expect(screen.queryByText('One subscription, 300+ frontier models — the recommended way to run Hermes')).toBeNull()
+    expect(screen.getByText('Nous Portal')).toBeTruthy()
+  })
+
   it('hides "choose later" in manual (add-provider) mode', () => {
     setProviders([makeOAuthProvider('nous', 'Nous Portal')])
     $desktopOnboarding.set({ ...$desktopOnboarding.get(), manual: true })

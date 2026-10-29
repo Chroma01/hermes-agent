@@ -12089,6 +12089,37 @@ function wireCommonWindowHandlers(win, { zoom = true }: { zoom?: boolean } = {})
   installDevToolsShortcut(win)
   installBrowserNavGestures(win)
 
+  // Reload anti-flash (measured with a CDP screencast): committing the reloaded
+  // empty document paints exactly one frame in Chromium's default light canvas
+  // (#F6F9FF observed) before index.html's pre-paint script runs. Cold launches
+  // hide it behind `show:false` + ready-to-show; a Ctrl+R on an already-visible
+  // window shows it raw. Cover the commit the same way the cold start does —
+  // hide the window for the navigation and bring it back once the load event
+  // has landed, when the canvas is the persisted boot background again.
+  let reloadCurtainUp = false
+  let curtainHadFocus = false
+  win.webContents.on('did-start-loading', () => {
+    if (reloadCurtainUp || win.isDestroyed() || !win.isVisible()) {
+      return
+    }
+    reloadCurtainUp = true
+    curtainHadFocus = win.isFocused()
+    win.hide()
+  })
+  const raiseReloadCurtain = () => {
+    if (!reloadCurtainUp || win.isDestroyed()) {
+      return
+    }
+    reloadCurtainUp = false
+    win.showInactive()
+    if (curtainHadFocus) {
+      win.focus()
+    }
+  }
+  win.webContents.on('did-finish-load', raiseReloadCurtain)
+  win.webContents.on('did-fail-load', raiseReloadCurtain)
+  win.webContents.on('did-stop-loading', raiseReloadCurtain)
+
   // Claim Ctrl/Cmd+F in the main process — on Pop!_OS / GNOME-based Linux
   // distros the Ctrl+F keydown does not reach the renderer's `view.findInPage`
   // binding (#81727). Routing it through `before-input-event` forwards the
