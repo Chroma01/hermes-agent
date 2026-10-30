@@ -43,6 +43,18 @@ export function setSkillEnabled(
   })
 }
 
+/** Delete a skill folder from disk. Built-in (bundled) skills may reappear on
+ *  the next `hermes update` bundled sync — delete again or disable to keep
+ *  them out. Hub skills take the uninstall action instead. */
+export function deleteSkill(name: string, profile?: ProfileScope): Promise<{ name: string; ok: boolean }> {
+  return window.hermesDesktop.api<{ name: string; ok: boolean }>({
+    ...capabilityScoped(profile),
+    path: '/api/skills',
+    method: 'DELETE',
+    body: { name }
+  })
+}
+
 export function getStarmapGraph(): Promise<StarmapGraph> {
   return hermesApi<StarmapGraph>({
     ...profileScoped(),

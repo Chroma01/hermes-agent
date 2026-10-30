@@ -16,6 +16,7 @@ export const zhOnboarding: TranslationOverrides['onboarding'] = {
   recommended: '推荐',
   connected: '已连接',
   featuredPitch: '一个订阅，300+ 前沿模型 — 运行 Hermes 的推荐方式',
+  dismissFeatured: '暂不显示',
   fireworksPitch: '直接模型 API — Fireworks 托管的前沿模型',
   localModelsTitle: '本地运行模型',
   localModelsPitch: '无需账号——下载模型，在本机运行',

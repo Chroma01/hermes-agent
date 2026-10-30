@@ -4,7 +4,7 @@ import { ArchiveSkillConfirmDialog } from '@/app/learning/archive-skill-confirm-
 import { CodeEditor } from '@/components/chat/code-editor'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
-import { editLearningNode, getLearningNode, type ProfileScope, profileScopeKey, setSkillEnabled } from '@/hermes'
+import { deleteSkill, editLearningNode, getLearningNode, type ProfileScope, profileScopeKey, setSkillEnabled } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
 import { invalidateSlashCompletions } from '@/lib/slash-completion-cache'
@@ -57,6 +57,9 @@ function ScopedSkillsTab({
   const [skillDraft, setSkillDraft] = useState('')
   const [skillSaving, setSkillSaving] = useState(false)
   const [archiveTarget, setArchiveTarget] = useState<null | string>(null)
+  // Two-step destructive button state: which row's Delete is armed (first
+  // click arms, second deletes) — the list has no shared confirm primitive.
+  const [deleteConfirm, setDeleteConfirm] = useState<null | string>(null)
 
   // eslint-disable-next-line no-restricted-syntax -- lifecycle guard drops stale async completions; it does not mirror an atom
   useEffect(() => {
@@ -124,6 +127,55 @@ function ScopedSkillsTab({
     } finally {
       invalidateSlashCompletions()
       void queryClient.invalidateQueries({ queryKey: skillsQueryKey(profile), exact: true })
+      mutationBusy.current = false
+
+      if (mounted.current) {
+        setBusy(false)
+      }
+    }
+  }
+
+  // Delete a skill folder from disk (built-ins included — the toggle alone
+  // could only mute them, which was Lauri's ask). Two-step: first click on a
+  // row arms its button, the second click on the same row deletes it.
+  async function deleteSkillRow(skill: SkillInfo) {
+    if (mutationBusy.current || installedPending || installedError) {
+      return
+    }
+
+    if (deleteConfirm !== skill.name) {
+      setDeleteConfirm(skill.name)
+
+      return
+    }
+
+    setDeleteConfirm(null)
+    mutationBusy.current = true
+    setBusy(true)
+
+    try {
+      await queryClient.cancelQueries({ queryKey: skillsQueryKey(profile), exact: true })
+      setSkills(current => current?.filter(row => row.name !== skill.name))
+      await deleteSkill(skill.name, profile)
+
+      if (mounted.current) {
+        notify({
+          kind: 'success',
+          title: t.skills.skillDeletedTitle,
+          message:
+            skill.provenance === 'bundled'
+              ? t.skills.skillDeleteBundledNote
+              : t.skills.skillDeletedMessage(skill.name)
+        })
+      }
+    } catch (err) {
+      if (mounted.current) {
+        notifyError(err, skill.name)
+      }
+
+      void queryClient.invalidateQueries({ queryKey: skillsQueryKey(profile), exact: true })
+    } finally {
+      invalidateSlashCompletions()
       mutationBusy.current = false
 
       if (mounted.current) {
@@ -271,6 +323,15 @@ function ScopedSkillsTab({
             {usageOf(skill) > 0 && (
               <p className="text-xs text-(--ui-text-tertiary)">{t.skills.usageCount(usageOf(skill))}</p>
             )}
+            <Button
+              className="mt-2"
+              disabled={controlsDisabled}
+              onClick={() => void deleteSkillRow(skill)}
+              size="xs"
+              variant="destructive"
+            >
+              {deleteConfirm === skill.name ? t.skills.confirmDeleteSkill : t.skills.deleteSkill}
+            </Button>
             <SkillDetail
               onArchive={() => {
                 if (!saving.current) {
