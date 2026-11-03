@@ -717,6 +717,85 @@ export function collapseOptimisticUserEchoes(messages: ChatMessage[]): ChatMessa
   return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
 }
 
+// The compaction summary rows a session carries after a context compaction;
+// same marker set the session commands use to spot a summarized window.
+const COMPACTION_MARKERS = ['[CONTEXT COMPACTION', '[CONTEXT SUMMARY]:', '[END OF PRIOR CONTEXT']
+
+const userSignature = (message: ChatMessage) =>
+  `${normalizedTimelineText(message)}\u0000${(message.attachmentRefs ?? []).join('\n')}`
+
+/** Retire stale user bubbles stranded by a mid-session compaction.
+ *  A compaction deactivates the window's stored user rows and re-anchors
+ *  byte-identical copies below the summary row (same stored text, fresh row
+ *  ids). The live view's copies that never earned a row id — a steer, a
+ *  queued promote, the prompt of the turn that was streaming when the
+ *  compaction fired — miss every rowId-keyed retire guard and fall through
+ *  the merge's append rule to the tail: the user's older prompts paint AFTER
+ *  the newest reply until a reload rehydrates the stored rows (the reported
+ *  tail-ordering / reload-flashbang symptom, which a long multi-tool turn
+ *  only triggers because it is what invites the compaction).
+ *
+ *  Windowed to the newest compaction boundary: below it, an exact same-text
+ *  stored row is by construction the re-anchored copy of this very send,
+ *  wherever the ghost sits in the window. Above it the text twin belongs to
+ *  an earlier turn, so a deliberate repeated send survives untouched — the
+ *  B38 discipline, applied to a new geometry. */
+export function collapseCompactedUserGhosts(messages: ChatMessage[]): ChatMessage[] {
+  let boundary = -1
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (message.role !== 'user') {
+      continue
+    }
+
+    const text = normalizedTimelineText(message)
+
+    if (COMPACTION_MARKERS.some(marker => text.includes(marker))) {
+      boundary = index
+    }
+  }
+
+  if (boundary === -1) {
+    return messages
+  }
+
+  const stored = new Set<string>()
+
+  for (let index = boundary + 1; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (message.role === 'user' && !message.hidden && message.rowId !== undefined) {
+      stored.add(userSignature(message))
+    }
+  }
+
+  const drop = new Set<number>()
+
+  for (let index = boundary + 1; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (
+      message.role !== 'user' ||
+      !message.id.startsWith(OPTIMISTIC_USER_PREFIX) ||
+      message.rowId !== undefined
+    ) {
+      continue
+    }
+
+    if (!normalizedTimelineText(message)) {
+      continue
+    }
+
+    if (stored.has(userSignature(message))) {
+      drop.add(index)
+    }
+  }
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
+
 /** Retire finished live stream bubbles whose answer has already committed.
  *  The persisted copy owns the row receipt and is the source of truth; the
  *  narrow activation-path supersede misses the common case where the commit
@@ -819,7 +898,7 @@ export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessa
       return false
     }
 
-    const twin = prefixTwinAhead(index, text)
+    const twin = prefixTwinAhead(index)
     const twinText = twin ? normalizedTimelineText(twin) : ''
     const twinTs = committedTsMs(twin)
 

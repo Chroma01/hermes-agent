@@ -21,7 +21,7 @@ import { TitleMenuTrigger } from '@/components/ui/title-menu-trigger'
 import { type HermesGateway, type ResolvedOwner } from '@/hermes'
 import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
-import { collapseOptimisticUserEchoes, collapseSameRowId, collapseSupersededStreamRows } from '@/lib/chat-messages'
+import { collapseOptimisticUserEchoes, collapseCompactedUserGhosts, collapseSameRowId, collapseSupersededStreamRows } from '@/lib/chat-messages'
 import { NEW_SESSION_TITLE, sessionTitle } from '@/lib/chat-runtime'
 import { useIncrementalExternalStoreRuntime } from '@/lib/incremental-external-store-runtime'
 import { useStoreSelector } from '@/lib/use-session-slice'
@@ -350,8 +350,10 @@ export function ChatRuntimeBoundary({
   // paints-the-prompt-twice window during streaming).
   const currentMessages = useMemo(
     () =>
-      collapseSameRowId(
-        collapseSupersededStreamRows(collapseOptimisticUserEchoes(history.page?.messages ?? windowedMessages))
+      collapseCompactedUserGhosts(
+        collapseSameRowId(
+          collapseSupersededStreamRows(collapseOptimisticUserEchoes(history.page?.messages ?? windowedMessages))
+        )
       ),
     [history.page, windowedMessages]
   )
