@@ -1,3 +1,5 @@
+import { isLiveTailReplyId as isLiveAssistantRow } from '../spoken-reply'
+
 import { attachmentTolerantUserText, sameAttachmentTurn } from './attachment-turn'
 import { chatMessageText } from './parts'
 import type { ChatMessage, ChatMessagePart } from './types'
@@ -661,4 +663,328 @@ export function preserveLocalSystemNotices(nextMessages: ChatMessage[], currentM
 
 export function branchGroupForUser(userMessage: ChatMessage): string {
   return `branch:${userMessage.id}`
+}
+
+const OPTIMISTIC_USER_PREFIX = 'user-'
+const QUEUED_USER_PREFIX = 'user-queued-'
+
+/** Retire optimistic user bubbles whose stored copy already sits beside them.
+ *  A transcript read keyed on stored rows grafts the durable prompt next to
+ *  the sender's optimistic bubble, and `bindReceiptUserRows` only merges the
+ *  pair once the turn COMPLETES — so while the answer streams, the prompt
+ *  paints twice (the receipt-user-rows bug, named in its own comment). Drop
+ *  the unbound optimistic copy when an adjacent stored user row carries the
+ *  exact same text and attachment refs: the durable copy owns the receipt, and
+ *  the binder's end-state (one bound row) is exactly what this shows early.
+ *  Text-equality only ever pairs a bubble with its own twin in the same turn;
+ *  a deliberate repeated send blinks at worst while its stored row lands. */
+export function collapseOptimisticUserEchoes(messages: ChatMessage[]): ChatMessage[] {
+  const drop = new Set<number>()
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (
+      message.role !== 'user' ||
+      !message.id.startsWith(OPTIMISTIC_USER_PREFIX) ||
+      message.id.startsWith(QUEUED_USER_PREFIX) ||
+      message.rowId !== undefined
+    ) {
+      continue
+    }
+
+    const text = normalizedTimelineText(message)
+
+    if (!text) {
+      continue
+    }
+
+    const refs = (message.attachmentRefs ?? []).join('\n')
+
+    const storedTwin = (candidate: ChatMessage | undefined) =>
+      candidate !== undefined &&
+      candidate.role === 'user' &&
+      !candidate.hidden &&
+      candidate.rowId !== undefined &&
+      normalizedTimelineText(candidate) === text &&
+      (candidate.attachmentRefs ?? []).join('\n') === refs
+
+    if (storedTwin(messages[index - 1]) || storedTwin(messages[index + 1])) {
+      drop.add(index)
+    }
+  }
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
+
+// The compaction summary rows a session carries after a context compaction;
+// same marker set the session commands use to spot a summarized window.
+const COMPACTION_MARKERS = ['[CONTEXT COMPACTION', '[CONTEXT SUMMARY]:', '[END OF PRIOR CONTEXT']
+
+const userSignature = (message: ChatMessage) =>
+  `${normalizedTimelineText(message)}\u0000${(message.attachmentRefs ?? []).join('\n')}`
+
+/** Retire stale user bubbles stranded by a mid-session compaction.
+ *  A compaction deactivates the window's stored user rows and re-anchors
+ *  byte-identical copies below the summary row (same stored text, fresh row
+ *  ids). The live view's copies that never earned a row id — a steer, a
+ *  queued promote, the prompt of the turn that was streaming when the
+ *  compaction fired — miss every rowId-keyed retire guard and fall through
+ *  the merge's append rule to the tail: the user's older prompts paint AFTER
+ *  the newest reply until a reload rehydrates the stored rows (the reported
+ *  tail-ordering / reload-flashbang symptom, which a long multi-tool turn
+ *  only triggers because it is what invites the compaction).
+ *
+ *  Windowed to the newest compaction boundary: below it, an exact same-text
+ *  stored row is by construction the re-anchored copy of this very send,
+ *  wherever the ghost sits in the window. Above it the text twin belongs to
+ *  an earlier turn, so a deliberate repeated send survives untouched — the
+ *  B38 discipline, applied to a new geometry. */
+export function collapseCompactedUserGhosts(messages: ChatMessage[]): ChatMessage[] {
+  let boundary = -1
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (message.role !== 'user') {
+      continue
+    }
+
+    const text = normalizedTimelineText(message)
+
+    if (COMPACTION_MARKERS.some(marker => text.includes(marker))) {
+      boundary = index
+    }
+  }
+
+  if (boundary === -1) {
+    return messages
+  }
+
+  const stored = new Set<string>()
+
+  for (let index = boundary + 1; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (message.role === 'user' && !message.hidden && message.rowId !== undefined) {
+      stored.add(userSignature(message))
+    }
+  }
+
+  const drop = new Set<number>()
+
+  for (let index = boundary + 1; index < messages.length; index++) {
+    const message = messages[index]
+
+    if (
+      message.role !== 'user' ||
+      !message.id.startsWith(OPTIMISTIC_USER_PREFIX) ||
+      message.rowId !== undefined
+    ) {
+      continue
+    }
+
+    if (!normalizedTimelineText(message)) {
+      continue
+    }
+
+    if (stored.has(userSignature(message))) {
+      drop.add(index)
+    }
+  }
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
+
+/** Retire finished live stream bubbles whose answer has already committed.
+ *  The persisted copy owns the row receipt and is the source of truth; the
+ *  narrow activation-path supersede misses the common case where the commit
+ *  lands while the stream bubble stays in the tail — the duplicated assistant
+ *  bubble reported after gateway respawns. Non-pending bubbles retire on an
+ *  exact committed-text match, so a live turn's typing indicator never
+ *  disappears. #B38: the live family also includes the sealed interim
+ *  segments (`inflight-assistant-segment-*`) that survive as ghosts next to
+ *  their durable commentary rows, and a completion event lost in a respawn
+ *  parks the final bubble at `pending` forever — that stuck copy retires too,
+ *  but only against an ADJACENT committed twin (a twin that only exists far
+ *  above belongs to an older turn, and retiring the freshly streaming bubble
+ *  against it would blink the typing indicator mid-sentence). */
+export function collapseSupersededStreamRows(messages: ChatMessage[]): ChatMessage[] {
+  const committedTexts = new Set<string>()
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.pending || isLiveAssistantRow(message.id)) {
+      continue
+    }
+
+    const text = normalizedTimelineText(message)
+
+    if (text) {
+      committedTexts.add(text)
+    }
+  }
+
+  if (!committedTexts.size) {
+    return messages
+  }
+
+  const committedTwin = (candidate: ChatMessage | undefined, text: string) =>
+    candidate !== undefined &&
+    candidate.role === 'assistant' &&
+    candidate.rowId !== undefined &&
+    !candidate.pending &&
+    normalizedTimelineText(candidate) === text
+
+  // #B39: the live snapshot is a lagging view of its own run. A mid-turn
+  // window reload freezes that snapshot behind the run's committed row, and
+  // its text is then a PREFIX of the twin, not equal to it — the exact-match
+  // guard above never fires and the partial ghost outlives even a reload.
+  // The bubble id embeds its run start (ms), the committed id embeds the
+  // row time, so "started at or before the twin" proves the twin superseded
+  // this run. A freshly streaming bubble started after every committed row
+  // above it, so an older line whose text happens to begin the same way
+  // cannot hide it.
+  const liveRunStartMs = (id: string) => {
+    const digits = /(\d{11,14})/.exec(id)
+
+    return digits ? Number(digits[1]) : null
+  }
+
+  const committedTsMs = (candidate: ChatMessage | null | undefined) => {
+    if (!candidate) {
+      return null
+    }
+
+    const stamp = /^(\d{10,11}(?:\.\d+)?|\d{13})/.exec(candidate.id)
+
+    if (!stamp) {
+      return null
+    }
+
+    const value = Number(stamp[1])
+
+    if (!Number.isFinite(value)) {
+      return null
+    }
+
+    return stamp[1].includes('.') || stamp[1].length <= 11 ? value * 1000 : value
+  }
+
+  const prefixTwinAhead = (index: number) => {
+    for (let cursor = index - 1; cursor >= 0; cursor--) {
+      const candidate = messages[cursor]
+
+      if (
+        candidate.role === 'assistant' &&
+        candidate.rowId !== undefined &&
+        !candidate.pending &&
+        !isLiveAssistantRow(candidate.id)
+      ) {
+        return candidate
+      }
+    }
+
+    return null
+  }
+
+  const stalePrefixSuperseded = (message: ChatMessage, index: number, text: string) => {
+    if (!text) {
+      return false
+    }
+
+    const start = liveRunStartMs(message.id)
+
+    if (start === null) {
+      return false
+    }
+
+    const twin = prefixTwinAhead(index)
+    const twinText = twin ? normalizedTimelineText(twin) : ''
+    const twinTs = committedTsMs(twin)
+
+    return (
+      twinText.length > text.length &&
+      twinText.startsWith(text) &&
+      twinTs !== null &&
+      twinTs >= start
+    )
+  }
+
+  const drop = new Set<number>()
+  messages.forEach((message, index) => {
+    if (!isLiveAssistantRow(message.id) || message.error) {
+      return
+    }
+
+    const text = normalizedTimelineText(message)
+
+    if (!text) {
+      return
+    }
+
+    if (message.pending) {
+      if (
+        committedTwin(messages[index - 1], text) ||
+        committedTwin(messages[index + 1], text) ||
+        stalePrefixSuperseded(message, index, text)
+      ) {
+        drop.add(index)
+      }
+
+      return
+    }
+
+    if (committedTexts.has(text) || stalePrefixSuperseded(message, index, text)) {
+      drop.add(index)
+    }
+  })
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
+}
+
+/** Collapse bubbles that represent the same persisted backend row (#138259).
+ *  After a gateway respawn the reconnect resync folds the transcript back onto
+ *  live bubbles that already carry the row's receipt, and both copies render —
+ *  the duplicated-transcript bug. Two bubbles never legitimately share a
+ *  `rowId`, so keep exactly one per rowId: non-pending over pending, richer
+ *  parts over poorer, earlier position wins ties (scroll stays stable).
+ *  Returns the input array unchanged when nothing collapses, so memoized
+ *  consumers of the message list don't re-render. */
+export function collapseSameRowId(messages: ChatMessage[]): ChatMessage[] {
+  const kept = new Map<number, number>()
+  const drop = new Set<number>()
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]
+    const { rowId } = message
+
+    if (rowId === undefined) {
+      continue
+    }
+
+    const keptIndex = kept.get(rowId)
+
+    if (keptIndex === undefined) {
+      kept.set(rowId, index)
+
+      continue
+    }
+
+    const incumbent = messages[keptIndex]
+
+    const replace =
+      (Boolean(incumbent.pending) && !message.pending) ||
+      (!incumbent.pending && !message.pending && message.parts.length > incumbent.parts.length)
+
+    if (!replace) {
+      drop.add(index)
+
+      continue
+    }
+
+    drop.add(keptIndex)
+    kept.set(rowId, index)
+  }
+
+  return drop.size ? messages.filter((_, index) => !drop.has(index)) : messages
 }
