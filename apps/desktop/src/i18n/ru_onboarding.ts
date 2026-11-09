@@ -16,6 +16,7 @@ export const ruOnboarding: TranslationOverrides['onboarding'] = {
   recommended: 'Рекомендуется',
   connected: 'Подключено',
   featuredPitch: 'Одна подписка, 300+ передовых моделей — рекомендуемый способ запускать Hermes',
+  dismissFeatured: 'Скрыть пока',
   fireworksPitch: 'Прямой API моделей — передовые модели на хостинге Fireworks',
   openRouterPitch: 'Один ключ, сотни моделей — надёжный вариант по умолчанию',
   apiKeyOptions: {

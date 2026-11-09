@@ -11,7 +11,8 @@ import {
   OpenRouterProviderRow,
   ProviderRow,
   providerTitle,
-  sortProviders
+  sortProviders,
+  useFeaturedDismissed
 } from '@/components/onboarding'
 import { Button } from '@/components/ui/button'
 import { RowButton } from '@/components/ui/row-button'
@@ -183,7 +184,13 @@ function OAuthPicker({
   // The free tier holds a token but no account: it is never "connected"; the featured Nous row
   // names it (Nous · free tier) and offers the sign-in that keeps its connectors.
   const isConnected = (p: OAuthProvider) => Boolean(p.status?.logged_in) && p.status?.free_tier !== true
-  const featured = ordered.find(p => p.id === FEATURED_ID && !isConnected(p)) ?? null
+  // The featured card is a "sign in to Nous Portal" pitch: it anchors the
+  // picker only while the account is UNCONNECTED AND the user hasn't
+  // dismissed it. Once dismissed the provider degrades to a plain row in the
+  // "Other providers" list (still selectable — the dismissal hides the pitch,
+  // not the provider).
+  const [featuredDismissed, dismissFeatured] = useFeaturedDismissed()
+  const featured = ordered.find(p => p.id === FEATURED_ID && !isConnected(p) && !featuredDismissed) ?? null
   const rest = featured ? ordered.filter(p => p.id !== FEATURED_ID) : ordered
   // Keep connected accounts grouped and always visible; only the unconnected
   // providers hide behind the disclosure, so the page leads with what's set up.
@@ -210,7 +217,7 @@ function OAuthPicker({
       <p className="-mt-2 mb-1 text-[length:var(--conversation-caption-font-size)] leading-(--conversation-caption-line-height) text-(--ui-text-tertiary)">
         {p.intro}
       </p>
-      {featured && <FeaturedProviderRow onSelect={select} provider={featured} />}
+      {featured && <FeaturedProviderRow onDismiss={dismissFeatured} onSelect={select} provider={featured} />}
       {/* Slot #2 — the no-account path, matching onboarding. Behind the
           --local launch flag like every local-models surface. */}
       {$localModelsEnabled.get() && <LocalModelsProviderRow onClick={onWantLocalModels} />}
