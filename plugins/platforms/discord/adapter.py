@@ -1159,6 +1159,7 @@ from plugins.platforms.discord.adapter_config_readers import (
     _DISCORD_PROMPT_TIMEOUT_DEFAULT, _DISCORD_PROMPT_TIMEOUT_MIN, _read_discord_prompt_timeout, _read_dm_role_auth_guild,
     _resolve_exec_approval_admin_gate)
 from plugins.platforms.discord.adapter_exec_approval_view import build_exec_approval_view
+from plugins.platforms.discord.adapter_component_auth import opener_refusal
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -1174,10 +1175,11 @@ from plugins.platforms.discord.adapter_authorization import DiscordAuthorization
 from plugins.platforms.discord.adapter_slash_auth import DiscordSlashAuthMixin
 from plugins.platforms.discord.adapter_thread_titles import DiscordThreadTitlesMixin, SemanticThreadRenames
 from plugins.platforms.discord.adapter_voice_info import DiscordVoiceInfoMixin
+from plugins.platforms.discord.adapter_reactions import DiscordReactionsMixin
 
 
 class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThreadTitlesMixin, DiscordVoiceInfoMixin,
-                     DiscordSlashAuthMixin, BasePlatformAdapter):
+                     DiscordSlashAuthMixin, DiscordReactionsMixin, BasePlatformAdapter):
     """Discord bot adapter: guild/DM messages, threads, slash commands, button approvals, reactions."""
 
     MAX_MESSAGE_LENGTH = 2000
@@ -3113,53 +3115,6 @@ class DiscordAdapter(DiscordAuthorizationMixin, DiscordMediaMixin, DiscordThread
             summary["updated"] += 1
         summary["total"] = len(desired_payloads)
         return summary
-
-    async def _add_reaction(self, message: Any, emoji: str) -> bool:
-        """Add an emoji reaction to a Discord message."""
-        if not message or not hasattr(message, "add_reaction"):
-            return False
-        try:
-            await message.add_reaction(emoji)
-            return True
-        except Exception as e:
-            logger.debug("[%s] add_reaction failed (%s): %s", self.name, emoji, e)
-            return False
-
-    async def _remove_reaction(self, message: Any, emoji: str) -> bool:
-        """Remove the bot's own emoji reaction from a Discord message."""
-        if not message or not hasattr(message, "remove_reaction") or not self._client or not self._client.user:
-            return False
-        try:
-            await message.remove_reaction(emoji, self._client.user)
-            return True
-        except Exception as e:
-            logger.debug("[%s] remove_reaction failed (%s): %s", self.name, emoji, e)
-            return False
-
-    def _reactions_enabled(self) -> bool:
-        """Reactions enabled via ``extra.reactions`` (YAML, per profile) or ``DISCORD_REACTIONS``."""
-        return self._extra_or_env_flag("reactions", "DISCORD_REACTIONS", "true", truthy=False)
-
-    async def on_processing_start(self, event: MessageEvent) -> None:
-        """Add an in-progress reaction and record durable handling state."""
-        message = event.raw_message
-        acked = False
-        if self._reactions_enabled() and hasattr(message, "add_reaction"):
-            acked = await self._add_reaction(message, "👀")
-        await asyncio.to_thread(self._record_discord_processing_start, event, emoji_ack=acked)
-
-    async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
-        """Swap the in-progress reaction for final reaction and durable state."""
-        await asyncio.to_thread(self._record_discord_processing_complete, event, outcome)
-        if not self._reactions_enabled():
-            return
-        message = event.raw_message
-        if hasattr(message, "add_reaction"):
-            await self._remove_reaction(message, "👀")
-            if outcome == ProcessingOutcome.SUCCESS:
-                await self._add_reaction(message, "✅")
-            elif outcome == ProcessingOutcome.FAILURE:
-                await self._add_reaction(message, "❌")
 
     @staticmethod
     def _message_reference_from_ids(message_id, channel) -> discord.MessageReference:
@@ -6347,8 +6302,11 @@ def _define_discord_view_classes() -> None:
             if not self._check_auth(interaction):
                 await interaction.response.send_message(unauth_msg, ephemeral=True)
                 return False
-            if refusal and (requester := refusal(getattr(interaction.user, "id", ""))):
-                await interaction.response.send_message(refusal_text(requester), ephemeral=True)
+            denial = opener_refusal(self, interaction)
+            if denial is None and refusal and (requester := refusal(getattr(interaction.user, "id", ""))):
+                denial = refusal_text(requester)
+            if denial is not None:  # someone else's card or prompt: it stays open for its owner
+                await interaction.response.send_message(denial, ephemeral=True)
                 return False
             return True
 
@@ -6464,6 +6422,8 @@ def _define_discord_view_classes() -> None:
     class UpdatePromptView(_HermesView):
         """Yes/No buttons for ``hermes update`` prompts; the answer is written to
         ``.update_response`` for the detached update process to pick up."""
+
+        is_update_prompt = True  # opener_refusal binds it to the /update sender
 
         def __init__(self, session_key: str, allowed_user_ids: set, allowed_role_ids: Optional[set] = None):
             super().__init__(allowed_user_ids, allowed_role_ids, timeout=_read_discord_prompt_timeout())
@@ -6716,8 +6676,7 @@ def _define_discord_view_classes() -> None:
             self.add_item(select)
 
         async def _on_select(self, interaction: discord.Interaction):
-            if not self._check_auth(interaction):
-                await interaction.response.send_message(_unauthorized(), ephemeral=True)
+            if not await self._gate(interaction, resolved_msg=None, unauth_msg=_unauthorized()):
                 return
             if self.resolved:
                 await interaction.response.defer()
