@@ -16,6 +16,7 @@ export const enOnboarding: Translations['onboarding'] = {
   recommended: 'Recommended',
   connected: 'Connected',
   featuredPitch: 'One subscription, 300+ frontier models — the recommended way to run Hermes',
+  dismissFeatured: 'Dismiss for now',
   fireworksPitch: 'Direct model API — Fireworks-hosted frontier models',
   localModelsTitle: 'Run models locally',
   localModelsPitch: 'No account needed — download a model and run it on this machine',
