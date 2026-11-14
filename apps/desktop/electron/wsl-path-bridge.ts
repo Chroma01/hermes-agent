@@ -18,6 +18,42 @@ const SHELL_DRIVE_RE = /^\/(?:cygdrive\/|mnt\/)?([a-z])(?:\/|$)/i
 
 let cachedDistro: null | string = null
 let cachedUncBase: null | string = null
+let cachedHasWsl: boolean | undefined
+
+// LAURI-PATCH(WSL-STUB-POPUP 14.11.2026): On a Windows host without WSL, spawning `wsl.exe`
+// or touching the `\\wsl.localhost` namespace launches the on-demand installer stub — a real
+// console window ("Windows Subsystem for Linux is not installed / Press any key to install",
+// 60 s timeout) that no stdio-ignore or windowsHide/CREATE_NO_WINDOW can suppress (the stub
+// allocates its own console, and a timeout kill leaves the window orphaned). On such hosts the
+// Lxss registry hive has no {guid} distro subkeys, so query that first: reg.exe is windowless
+// and is the authoritative installed-distro signal. Only probe `wsl.exe -l -q` and the UNC
+// share below when WSL is actually present. Upstream #80184 only fixed the stderr banner leak.
+function machineHasWsl(): boolean {
+  if (typeof cachedHasWsl === 'boolean') {
+    return cachedHasWsl
+  }
+
+  if (!IS_WINDOWS) {
+    cachedHasWsl = true
+
+    return cachedHasWsl
+  }
+
+  try {
+    const q = execFileSync('reg.exe', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Lxss'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 3000,
+      windowsHide: true
+    })
+
+    cachedHasWsl = /Lxss\\\{/i.test(q)
+  } catch {
+    cachedHasWsl = false
+  }
+
+  return cachedHasWsl
+}
 
 /**
  * WSL path eligibility belongs to the backend profile that produced the path.
@@ -85,6 +121,12 @@ export function resolveDefaultWslDistro(): string {
     return cachedDistro
   }
 
+  if (!machineHasWsl()) {
+    cachedDistro = 'Ubuntu'
+
+    return cachedDistro
+  }
+
   try {
     const out = execFileSync('wsl.exe', ['-l', '-q'], {
       encoding: 'utf8',
@@ -115,6 +157,12 @@ function wslUncBase(distro: string): string {
 
   const modern = `\\\\wsl.localhost\\${distro}`
   const legacy = `\\\\wsl$\\${distro}`
+
+  if (!machineHasWsl()) {
+    cachedUncBase = modern
+
+    return cachedUncBase
+  }
 
   try {
     if (!fs.existsSync(modern) && fs.existsSync(legacy)) {
