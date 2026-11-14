@@ -511,6 +511,10 @@ class SkillToggle(BaseModel):
     enabled: bool
     profile: Optional[str] = None
 
+class SkillDelete(BaseModel):
+    name: str
+    profile: Optional[str] = None
+
 class SkillLock(BaseModel):
     name: str
     locked: bool

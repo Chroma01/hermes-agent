@@ -16,6 +16,7 @@ export const jaOnboarding: TranslationOverrides['onboarding'] = {
   recommended: '推奨',
   connected: '接続済み',
   featuredPitch: '1 つのサブスクリプションで 300 以上の最先端モデル — Hermes を実行するための推奨方法',
+  dismissFeatured: '今は表示しない',
   fireworksPitch: '直接モデル API — Fireworks がホストする最先端モデル',
   localModelsTitle: 'モデルをローカルで実行',
   localModelsPitch: 'アカウント不要——モデルをダウンロードしてこのマシンで実行',

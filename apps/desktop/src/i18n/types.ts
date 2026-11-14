@@ -1909,6 +1909,11 @@ export interface Translations extends NoticeTranslations {
     lockHint: string
     unlockedHint: string
     skillArchivedMessage: string
+    skillDeletedTitle: string
+    skillDeletedMessage: (name: string) => string
+    skillDeleteBundledNote: string
+    deleteSkill: string
+    confirmDeleteSkill: string
     tabPlugins: string
     plugins: PluginUpdateTranslations &
       PluginUpdateAllTranslations &

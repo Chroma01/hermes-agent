@@ -1,6 +1,7 @@
 import { RowButton } from '@/components/ui/row-button'
 import { useI18n } from '@/i18n'
-import { Check, ChevronRight, Terminal } from '@/lib/icons'
+import { useState } from 'react'
+import { Check, ChevronRight, Terminal, X } from '@/lib/icons'
 import { PROVIDER_DISPLAY_NAMES } from '@/lib/model-status-label'
 import type { OAuthProvider } from '@/types/hermes'
 
@@ -19,6 +20,38 @@ const PROVIDER_ORDER: Record<string, number> = {
 
 const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 
+// The featured card is a "sign in to Nous Portal" pitch. Dismissing it is a
+// per-machine preference that sticks for both surfaces that render it (the
+// settings Accounts pane and the onboarding picker) — the localStorage key is
+// shared by design, so one X hides the banner everywhere. The state is lifted
+// to the Picker/OAuthPicker owner (via this hook) so the layout reacts live:
+// a dismissed featured degrades to a plain provider row instead of vanishing.
+const FEATURED_DISMISS_KEY = 'hermes-onboarding-featured-dismissed-v1'
+
+const readFeaturedDismissed = () => {
+  try {
+    return window.localStorage.getItem(FEATURED_DISMISS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function useFeaturedDismissed(): [boolean, () => void] {
+  const [dismissed, setDismissed] = useState(readFeaturedDismissed)
+
+  const dismiss = () => {
+    try {
+      window.localStorage.setItem(FEATURED_DISMISS_KEY, '1')
+    } catch {
+      // localStorage unavailable — degrade silently.
+    }
+
+    setDismissed(true)
+  }
+
+  return [dismissed, dismiss]
+}
+
 export const providerTitle = (p: OAuthProvider) => PROVIDER_DISPLAY_NAMES[p.id] ?? p.name
 const orderOf = (p: OAuthProvider) => PROVIDER_ORDER[p.id] ?? 99
 
@@ -26,9 +59,11 @@ export const sortProviders = (providers: OAuthProvider[]) =>
   [...providers].sort((a, b) => orderOf(a) - orderOf(b) || a.name.localeCompare(b.name))
 
 export function FeaturedProviderRow({
+  onDismiss,
   onSelect,
   provider
 }: {
+  onDismiss?: () => void
   onSelect: (provider: OAuthProvider) => void
   provider: OAuthProvider
 }) {
@@ -64,7 +99,23 @@ export function FeaturedProviderRow({
           {freeTier ? t.freeTier.providerRowPitch : t.onboarding.featuredPitch}
         </p>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-0.5" />
+      <span className="flex shrink-0 items-center gap-1">
+        {!loggedIn && onDismiss && (
+          <button
+            aria-label={t.onboarding.dismissFeatured}
+            className="rounded p-1 text-muted-foreground transition hover:bg-(--ui-control-hover-background) hover:text-foreground"
+            onClick={e => {
+              e.stopPropagation()
+              onDismiss?.()
+            }}
+            title={t.onboarding.dismissFeatured}
+            type="button"
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
+        <ChevronRight className="size-4 shrink-0 text-primary transition group-hover:translate-x-0.5" />
+      </span>
     </button>
   )
 }

@@ -26,6 +26,7 @@ import type {
   ToolRowModel
 } from '../types'
 
+import { CURATED_HOSTED_SLUGS } from './curated-hosted'
 import type { ConnectAddress } from './rpc'
 
 export interface ConnectorPolicyTagRules {
@@ -201,7 +202,16 @@ export function joinHostedConnectors({
   policy,
   rulesReadable = true
 }: HostedJoinInput): HostedConnectorInput[] {
-  return hostedSlugs({ catalog, list }).map(slug => {
+  // Fork curation: the portal's hosted catalog is a marketing directory of ~60 SaaS
+  // integrations. Show only the curated slugs — plus anything already connected or
+  // holding an account, so live connections are never hidden.
+  const slugs = hostedSlugs({ catalog, list }).filter(
+    slug =>
+      CURATED_HOSTED_SLUGS.has(slug) ||
+      list.some(candidate => candidate.connector === slug && candidate.connected === true) ||
+      accountsFor(accounts, slug).length > 0
+  )
+  return slugs.map(slug => {
     const entry = catalog.find(row => row.slug === slug)
     const row = list.find(candidate => candidate.connector === slug)
     const mine = accountsFor(accounts, slug)

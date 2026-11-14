@@ -14,6 +14,7 @@ export interface OnboardingTranslations {
   recommended: string
   connected: string
   featuredPitch: string
+  dismissFeatured: string
   fireworksPitch: string
   localModelsTitle: string
   localModelsPitch: string

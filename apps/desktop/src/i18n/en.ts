@@ -2110,6 +2110,11 @@ export const en: Translations = {
     lockHint: "The agent can't change this skill while it's locked. You can still edit it yourself.",
     unlockedHint: 'Lock to stop the agent from changing this skill. You can still edit it yourself.',
     skillArchivedMessage: 'Restorable via hermes curator restore.',
+    skillDeletedTitle: 'Skill deleted',
+    skillDeletedMessage: name => `“${name}” was removed from disk.`,
+    skillDeleteBundledNote: 'Built-in skills may return on the next update — disable to keep them out.',
+    deleteSkill: 'Delete skill',
+    confirmDeleteSkill: 'Confirm delete',
     tabPlugins: 'Plugins',
     plugins: {
       agentTitle: 'Agent plugins',

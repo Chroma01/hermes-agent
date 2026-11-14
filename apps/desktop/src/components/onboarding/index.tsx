@@ -48,7 +48,8 @@ import {
   LocalModelsProviderRow,
   OpenRouterProviderRow,
   ProviderRow,
-  sortProviders
+  sortProviders,
+  useFeaturedDismissed
 } from './providers'
 
 export {
@@ -59,7 +60,8 @@ export {
   OpenRouterProviderRow,
   ProviderRow,
   providerTitle,
-  sortProviders
+  sortProviders,
+  useFeaturedDismissed
 } from './providers'
 
 import { $gateway, activeGatewayConnectionId } from '@/store/gateway'
@@ -635,6 +637,7 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
   const hasOauth = ordered.length > 0
   const apiKeyOptions = useApiKeyCatalog(ctx.scope)
   const select = (p: OAuthProvider) => void startProviderOAuth(p, ctx)
+  const [featuredDismissed, dismissFeatured] = useFeaturedDismissed()
 
   // localEndpoint forces the key form regardless of `mode` (which a manual
   // provider refresh may flip back to 'oauth'); it preselects the local option
@@ -660,7 +663,11 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
     return <Status>{t.onboarding.lookingUpProviders}</Status>
   }
 
-  const featured = ordered.find(p => p.id === FEATURED_ID) ?? null
+  // The featured card is a "sign in to Nous Portal" pitch: it anchors the
+  // picker only while the account is unconnected AND the user hasn't
+  // dismissed it. Once dismissed the provider degrades to a plain row in the
+  // list (still selectable — the dismissal hides the pitch, not the provider).
+  const featured = ordered.find(p => p.id === FEATURED_ID && !p.status?.logged_in && !featuredDismissed) ?? null
   const rest = featured ? ordered.filter(p => p.id !== FEATURED_ID) : ordered
   // Collapse the secondary providers behind a disclosure whenever Nous Portal
   // is present to anchor the choice — otherwise show the full list. The
@@ -687,7 +694,7 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
   return (
     <div className="grid gap-2">
       <div className="grid max-h-[60dvh] gap-2 overflow-y-auto p-1">
-        {featured ? <FeaturedProviderRow onSelect={select} provider={featured} /> : null}
+        {featured ? <FeaturedProviderRow onDismiss={dismissFeatured} onSelect={select} provider={featured} /> : null}
         {/* The no-account path: everything runs on this machine. Shipped
             behind the --local launch flag. (Fireworks moved into the
             expanded list on main.) */}
