@@ -11,7 +11,6 @@ import { triggerHaptic } from '@/lib/haptics'
 import { servedByHermesCloud } from '@/lib/hermes-cloud-host'
 import {
   Archive,
-  BarChart3,
   Bell,
   CloudUpload,
   Cpu,
@@ -49,8 +48,8 @@ import { OverlayView } from '../overlays/overlay-view'
 import { AboutSettings } from './about-settings'
 import { AppearanceSettings } from './appearance-settings'
 import { BackupSettings } from './backup-settings'
-import { BILLING_VIEWS, BillingSettings, type BillingSubView } from './billing'
-import { deriveBillingView, useBillingState, useSubscriptionState } from './billing/use-billing-state'
+// LAURI-PATCH(BILLING-REMOVAL): billing settings section stripped (enshittification);
+// full code preserved on fork branch archive/billing @ e71b00785d.
 import { ConfigSettings } from './config-settings'
 import { SECTIONS } from './constants'
 import { GatewaySettings } from './gateway-settings'
@@ -86,7 +85,6 @@ const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   'keys',
   'vault',
   'notifications',
-  'billing',
   'sessions',
   'backup',
   'plugins',
@@ -170,12 +168,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
   // sub-view is deep-linkable and survives a refresh.
   const [providerView, setProviderView] = useRouteEnumParam<ProviderView>('pview', PROVIDER_VIEWS, 'accounts')
   const [keysView] = useRouteEnumParam<KeysView>('kview', KEYS_VIEWS, 'tools')
-  const [billingView] = useRouteEnumParam<BillingSubView>('bview', BILLING_VIEWS, 'overview')
-  const billingState = useBillingState()
-  const subscriptionState = useSubscriptionState()
-  const billingPresentation = deriveBillingView(billingState.data, subscriptionState.data)
-  const canViewPlans = billingPresentation.status === 'normal' && Boolean(billingPresentation.plan?.action)
-
   // Jump to a section + its sub-view in one navigate. Two sequential setters
   // would each read the same stale `search` and the second would clobber the
   // first's `tab` — so the sub-view never opened on narrow screens.
@@ -295,33 +287,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             id: 'notifications',
             label: t.settings.nav.notifications,
             onSelect: () => setActiveView('notifications')
-          },
-          {
-            active: activeView === 'billing',
-            children: [
-              {
-                active: activeView === 'billing' && (billingView === 'overview' || !canViewPlans),
-                icon: BarChart3,
-                id: 'bview:overview',
-                label: t.settings.subpages.billingOverview,
-                onSelect: () => openSubView('billing', 'bview', 'overview', 'overview')
-              },
-              ...(canViewPlans
-                ? [
-                    {
-                      active: activeView === 'billing' && billingView === 'plans',
-                      icon: BarChart3,
-                      id: 'bview:plans',
-                      label: t.settings.subpages.billingPlans,
-                      onSelect: () => openSubView('billing', 'bview', 'plans', 'overview')
-                    }
-                  ]
-                : [])
-            ],
-            icon: BarChart3,
-            id: 'billing',
-            label: t.settings.nav.billing,
-            onSelect: () => setActiveView('billing')
           },
           {
             active: activeView === 'providers',
@@ -470,8 +435,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       }),
     [
       activeView,
-      billingView,
-      canViewPlans,
       keysView,
       plugins,
       providerView,
@@ -595,8 +558,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     />
   ) : activeView === 'keys' ? (
     <KeysSettings view={keysView} />
-  ) : activeView === 'billing' ? (
-    <BillingSettings />
   ) : activeView === 'web-access' ? (
     <WebAccessSettings />
   ) : activeView === 'plugins' ? (
