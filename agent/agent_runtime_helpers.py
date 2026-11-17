@@ -1442,12 +1442,8 @@ def restore_primary_runtime(agent) -> bool:
         agent._provider_fallback_active = False
         agent._provider_fallback_route = None
         if provider_fallback_active:
-            # Notification surfaces are best-effort and must never undo a successful restore.
-            with contextlib.suppress(Exception):
-                agent._emit_diagnostic_status(
-                    f"✅ Primary model restored: {agent.model} via {agent.provider}; "
-                    f"fallback {previous_model} via {previous_provider} is no longer active."
-                )
+            from agent.fallback_notice import announce_primary_restored
+            announce_primary_restored(agent, previous_model, previous_provider)
         return True
     except Exception as e:
         logger.warning("Failed to restore primary runtime: %s", e)
@@ -1656,7 +1652,7 @@ def plan_cache_sections_for_destination(
     plan = build_prompt_cache_plan(
         messages, tools,
         # effective_cache_ttl resolves None → "5m"; cache-disabled agents never reach here.
-        cache_ttl=effective_cache_ttl(cache_ttl, provider=provider, model=model),
+        cache_ttl=effective_cache_ttl(cache_ttl, provider=provider, model=model, base_url=base_url),
         native_anthropic=native_layout,
         static_system_prefix=static_system_prefix if isinstance(static_system_prefix, str) else None,
         direct_native_tool_cache=_direct_native_anthropic_tool_cache_capability(stub, **dest),
