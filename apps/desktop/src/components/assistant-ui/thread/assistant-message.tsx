@@ -92,7 +92,7 @@ import { useReplyAwaitingContinuation } from '@/store/paused-replies'
 import { $activeGatewayProfile, normalizeProfileKey, requestFreshSession } from '@/store/profile'
 import { sessionApprovalRequest } from '@/store/prompts'
 import { requestSendDiagnostics } from '@/store/send-diagnostics'
-import { $connection, $currentModel, setModelPickerOpen } from '@/store/session'
+import { $connection, $currentModel, $sessions, setModelPickerOpen } from '@/store/session'
 import { sessionTileDelegate } from '@/store/session-states'
 import { notifyThreadEditOpen } from '@/store/thread-scroll'
 import { $voicePlayback } from '@/store/voice-playback'
@@ -597,6 +597,29 @@ const StreamingMarker: FC = () => {
 
 const useErrorSurface = () => useAuiState(s => s.message.metadata?.custom?.errorSurface as ErrorSurface | undefined)
 
+// A failed-turn card is stale once the conversation demonstrably moved past
+// it. Two independent proofs: hydration marked it (metadata.custom.errorResolved
+// — a later settled assistant reply exists in this transcript), or the gateway
+// already reset this session into a newer segment (a loaded session row carries
+// `_reset_from` equal to this surface's stored id). Either way the full alert
+// card is history, not an open failure, and renders as a compact marker.
+// `hasSurface` gates the session-level proof to stored failed-turn rows only:
+// a live send failure carries no error_surface, and its card must keep Retry
+// even in a session that once reset.
+const useErrorResolved = (hasSurface: boolean) => {
+  const marked = useAuiState(s => Boolean(s.message.metadata?.custom?.errorResolved))
+  const view = useSessionView()
+  const storedId = useStore(view.$storedId)
+  const sessions = useStore($sessions)
+
+  const hasResetChild = useMemo(
+    () => Boolean(storedId) && sessions.some(session => session._reset_from?.trim() === storedId),
+    [sessions, storedId]
+  )
+
+  return marked || (hasSurface && hasResetChild)
+}
+
 const useErrorText = () =>
   useAuiState(s => {
     const status = s.message.status as { error?: unknown; type?: string } | undefined
@@ -970,12 +993,28 @@ const ErrorCard: FC<{ onDismiss?: () => void }> = ({ onDismiss }) => {
   const copy = t.assistant.thread
   const surface = useErrorSurface()
   const errorText = useErrorText()
+  const resolved = useErrorResolved(Boolean(surface))
   const [detailsOpen, setDetailsOpen] = useState(false)
   const detailsId = useId()
   const { body, title } = errorCardText(copy, surface)
   const severity = errorCardSeverity(surface)
   // A plan limit is not a fault: no diagnostics to bury the actions that fix it.
   const diagnostics = errorCardShowsDiagnostics(surface)
+
+  // The conversation moved past this failure (auto-continue or a newer reset
+  // segment): one muted line replaces the alert card — no actions, no details.
+  if (resolved) {
+    return (
+      <div
+        className="flex items-center gap-1 px-(--message-text-indent) pt-1 text-[0.72rem] text-(--ui-text-tertiary)"
+        data-slot="aui_error-card-resolved"
+        role="status"
+      >
+        <SquareAlertIcon className="size-3" />
+        {copy.errorResolvedMarker}
+      </div>
+    )
+  }
 
   return (
     <ErrorPrimitive.Root className="aui-error-card" data-severity={severity} data-slot="aui_error-card" role="alert">

@@ -509,6 +509,7 @@ export function toRuntimeMessage(message: ChatMessage): ThreadMessage {
         ...(message.durationS !== undefined ? { durationS: message.durationS } : {}),
         // Structured failure layer for the error card (see lib/error-surface).
         ...(message.errorSurface ? { errorSurface: message.errorSurface } : {}),
+        ...(message.errorResolved ? { errorResolved: true } : {}),
         ...reactionMeta
       }
     }

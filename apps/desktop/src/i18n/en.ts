@@ -4522,6 +4522,17 @@ export const en: Translations = {
       },
       errorDetails: 'View error details',
       errorHideDetails: 'Hide error details',
+      /** Compact line replacing a failed-turn alert card the conversation has
+       *  demonstrably moved past (auto-continue or a newer reset segment). */
+      errorResolvedMarker: 'Reply was cut short — the conversation continued after this.',
+      /** Transcript-edge cards at an auto-reset segment boundary. The argument
+       *  is the other segment's title, null when its row is not loaded. */
+      segmentContinuesFrom: title =>
+        title ? `Continues an earlier conversation: ${title}` : 'Continues an earlier conversation',
+      segmentContinuesIn: title =>
+        title
+          ? `The conversation continues in a newer conversation: ${title}`
+          : 'The conversation continues in a newer conversation',
       errorDetailsCopy: 'Copy details',
       errorCopyRaw: 'Copy error',
       errorContinue: 'Continue',

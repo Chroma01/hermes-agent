@@ -3996,6 +3996,13 @@ export interface Translations extends NoticeTranslations {
       /** Collapsed "Details" line holding the raw provider/gateway text. */
       errorDetails: string
       errorHideDetails: string
+      /** Compact line replacing a failed-turn alert card the conversation has
+       *  demonstrably moved past (see ChatMessage.errorResolved). */
+      errorResolvedMarker: string
+      /** Transcript-edge cards at an auto-reset segment boundary; the argument
+       *  is the other segment's title, null when its row is not loaded. */
+      segmentContinuesFrom: (title: null | string) => string
+      segmentContinuesIn: (title: null | string) => string
       errorDetailsCopy: string
       errorCopyRaw: string
       errorContinue: string

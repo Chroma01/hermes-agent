@@ -236,6 +236,29 @@ function failedTurnError(
   return { error, errorSurface }
 }
 
+// The gateway's context-overflow auto-continue writes a failed_turn row (the
+// error card) and ~30s later the model keeps answering: it resumes through an
+// internal_notification turn, or the session resets into a child segment that
+// carries the conversation on. Once any settled successful assistant reply
+// exists after the card, the card is stale history, not an open failure. One
+// backward pass over the finished output marks every earlier card resolved so
+// the renderer can shrink it to a compact marker (assistant-message.tsx).
+function markResolvedFailedTurnCards(messages: ChatMessage[]): void {
+  let continued = false
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+
+    if (message.errorSurface && continued) {
+      message.errorResolved = true
+    }
+
+    if (message.role === 'assistant' && !message.error && !message.pending && chatMessageText(message).trim()) {
+      continued = true
+    }
+  }
+}
+
 // agent/turn_failure_copy.py::CONTENT_REFUSED_NOTICE, stored under
 // display_metadata.content_refused.notice. Absent on older backends — the
 // renderer falls back to an i18n string then.
@@ -781,7 +804,7 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
       : message
   )
 
-  return withUniqueToolCallIds(
+  const output = withUniqueToolCallIds(
     withoutGeneratedImageEchoes.filter(
       m =>
         chatMessageText(m).trim() ||
@@ -791,4 +814,8 @@ export function toChatMessages(messages: SessionMessage[]): ChatMessage[] {
         m.contentRefused
     )
   )
+
+  markResolvedFailedTurnCards(output)
+
+  return output
 }

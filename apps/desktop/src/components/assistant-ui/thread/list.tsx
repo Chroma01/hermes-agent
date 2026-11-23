@@ -47,6 +47,7 @@ import { MessageRenderBoundary } from '../message-render-boundary'
 import { PendingApprovalStack } from '../tool/approval'
 
 import { responseMessageRole, ResponseMessages } from './response-group'
+import { SegmentContinuesFromCard, SegmentContinuesInCard } from './segment-continuation'
 import { holdSessionSwitching } from './session-switching'
 import { resolveShowEarlierAction, shouldAutoShowEarlier, useTranscriptWindow } from './transcript-window'
 import { useMessagesBelow } from './use-messages-below'
@@ -1645,6 +1646,9 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
           data-slot="aui_thread-content"
           ref={contentRef as React.RefCallback<HTMLDivElement>}
         >
+          {/* Auto-reset segment boundary: this transcript continues a sealed
+              older session (the card names it and opens it on click). */}
+          <SegmentContinuesFromCard />
           {!renderEmpty && (hiddenCount > 0 || olderAvailable) && (
             <button
               className="mx-auto mb-(--conversation-turn-gap) rounded-full border border-border/65 bg-(--composer-fill) px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
@@ -1661,6 +1665,9 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
           ) : (
             rows
           )}
+          {/* The conversation moved on into a newer reset segment below the
+              last message of this one. */}
+          {!renderEmpty && <SegmentContinuesInCard />}
           <PendingApprovalStack />
           {!renderEmpty && loadingIndicator}
           {!renderEmpty && clampToComposer && (

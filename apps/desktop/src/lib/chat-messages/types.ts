@@ -52,6 +52,10 @@ export type ChatMessage = {
    *  Drives the error card's layer label + actions; absent on older
    *  backends, where the card falls back to generic copy. */
   errorSurface?: ErrorSurface
+  /** A failed-turn card whose conversation demonstrably continued (a later
+   *  successful assistant turn in the same transcript, or a newer reset
+   *  segment) — rendered as a compact marker instead of the full alert card. */
+  errorResolved?: boolean
   branchGroupId?: string
   hidden?: boolean
   /** Sealed mid-turn commentary (`message.interim`) — rendered without the
