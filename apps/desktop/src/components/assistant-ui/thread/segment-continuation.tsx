@@ -97,7 +97,16 @@ const SegmentCardInRouter: FC<{
       dataSlot={dataSlot}
       icon={icon}
       label={label}
-      onOpen={() => openSessionFromPicker(sessionId, navigate)}
+      onOpen={() =>
+        // 'main': route the target segment into this window unconditionally.
+        // The default in-place door resolves through lineage aliases, and a
+        // reset child aliases its sealed parent (and vice versa) — the door
+        // would call the sibling "already on screen", front the current chat
+        // (a visual no-op) and never navigate. The bridge card promises the
+        // OTHER segment, so jump to it; resumeSession drops the redundant
+        // tile when the main surface binds the same id.
+        openSessionFromPicker(sessionId, navigate, 'main')
+      }
     />
   )
 }

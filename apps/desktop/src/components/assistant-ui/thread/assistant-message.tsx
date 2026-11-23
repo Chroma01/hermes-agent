@@ -603,10 +603,12 @@ const useErrorSurface = () => useAuiState(s => s.message.metadata?.custom?.error
 // already reset this session into a newer segment (a loaded session row carries
 // `_reset_from` equal to this surface's stored id). Either way the full alert
 // card is history, not an open failure, and renders as a compact marker.
-// `hasSurface` gates the session-level proof to stored failed-turn rows only:
-// a live send failure carries no error_surface, and its card must keep Retry
-// even in a session that once reset.
-const useErrorResolved = (hasSurface: boolean) => {
+// `isStoredCard` gates the session-level proof to persisted rows only: a live
+// send failure has no server row id (`custom.rowId`), and its card must keep
+// Retry even in a session that once reset. Gating on `errorSurface` instead was
+// wrong — a hydrated failed_turn row carries its surface in `display_metadata`,
+// and the very card this exists for has no live surface to gate on.
+const useErrorResolved = (isStoredCard: boolean) => {
   const marked = useAuiState(s => Boolean(s.message.metadata?.custom?.errorResolved))
   const view = useSessionView()
   const storedId = useStore(view.$storedId)
@@ -617,7 +619,7 @@ const useErrorResolved = (hasSurface: boolean) => {
     [sessions, storedId]
   )
 
-  return marked || (hasSurface && hasResetChild)
+  return marked || (isStoredCard && hasResetChild)
 }
 
 const useErrorText = () =>
@@ -993,7 +995,10 @@ const ErrorCard: FC<{ onDismiss?: () => void }> = ({ onDismiss }) => {
   const copy = t.assistant.thread
   const surface = useErrorSurface()
   const errorText = useErrorText()
-  const resolved = useErrorResolved(Boolean(surface))
+  // Persisted rows carry their server row id in metadata.custom (chat-runtime's
+  // reactionMeta); a live send failure has none yet and keeps its Retry actions.
+  const isStoredCard = useAuiState(s => s.message.metadata?.custom?.rowId !== undefined)
+  const resolved = useErrorResolved(isStoredCard)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const detailsId = useId()
   const { body, title } = errorCardText(copy, surface)
